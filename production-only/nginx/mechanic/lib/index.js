@@ -1,50 +1,30 @@
 /**
  * 移除了 set() 方法 和 prettiest 依赖, 添加了 ROOT_DIR 变量
  *
- * PS: 这个老外的代码 真是烂！！！
+ * PS: 这个老外的代码 真是烂！！！ 重构了好久!!!!
  */
+
+'use strict';
 
 require('yqj-commons');
 
-var argv = require('./boring')();
-var fs = require('fs');
-var shelljs = require('shelljs');
-var shellEscape = require('./shell-escape');
+const argv = require('./boring')();
+const fs = require('fs');
+const shelljs = require('shelljs');
+const shellEscape = require('./shell-escape');
 
-var dataFile;
-if (argv.data) {
-  dataFile = argv.data;
-  delete argv.data;
-} else {
-  dataFile = '/var/lib/misc/mechanic.json';
-  // The Unix File Hierarchy Standard says that all distros should
-  // have a /var/lib/misc folder for storage of "state files
-  // that don't need a directory." But create it if it's
-  // somehow missing (Mac for instance).
-  if (!fs.existsSync('/var/lib/misc')) {
-    fs.mkdirSync('/var/lib/misc', 0700);
-  }
+const cfgDataFile = argv.config;
+
+if (!cfgDataFile) {
+  throw new Error('Must set cfgDataFile using --config');
 }
 
 const ROOT_DIR = require('./app-root').get();
 
-var data = require(`${ROOT_DIR}/${dataFile}`);
-
-var defaultSettings = {
-  conf: '/etc/nginx/conf.d',
-  overrides: '/etc/nginx/mechanic-overrides',
-  logs: '/var/log/nginx',
-  restart: 'nginx -s reload',
-  bind: '*'
-};
-
-_.defaults(data, {
-  settings: {}
-});
-_.defaults(data.settings, defaultSettings);
+const data = require(`${ROOT_DIR}/${cfgDataFile}`);
 
 function _replaceRootDirToRootPath(obj) {
-  Object.keys(obj).forEach((key) => {
+  Object.keys(obj).forEach(key => {
     const value = obj[key];
     if (typeof value !== 'string') {
       return;
@@ -54,161 +34,47 @@ function _replaceRootDirToRootPath(obj) {
   return obj;
 }
 
-var settings = _replaceRootDirToRootPath(data.settings);
+const settings = _replaceRootDirToRootPath(data.settings);
 
-var nunjucks = require('nunjucks');
+const nunjucks = require('nunjucks');
 
-var aliases = {
-  'backend': 'backends'
-};
-
-var options = {
-  'host': 'string',
-  'backends': 'addresses',
-  'aliases': 'strings',
-  'canonical': 'boolean',
-  'default': 'boolean',
-  'static': 'string',
-  'autoindex': 'boolean',
-  'https': 'boolean',
-  'redirect-to-https': 'boolean'
-};
-
-var parsers = {
-  string: function(s) {
-    return s.trim();
-  },
-  integer: function(s) {
-    return parseInt(s, 10);
-  },
-  integers: function(s) {
-    return _.map(parsers.strings(s), function(s) {
-      return parsers.integer(s);
-    });
-  },
-  addresses: function(s) {
-    return _.map(parsers.strings(s), function(s) {
-      var matches = s.match(/^(([^:]+)\:)?(\d+)$/);
-      if (!matches) {
-        throw 'A list of port numbers and/or address:port combinations is expected, separated by commas';
-      }
-      var host, port;
-      if (matches[2]) {
-        host = matches[2];
-      } else {
-        host = 'localhost';
-      }
-      port = matches[3];
-      return host + ':' + port;
-    });
-  },
-  strings: function(s) {
-    return s.toString().split(/\s*\,\s*/);
-  },
-  boolean: function(s) {
-    return (s === 'true') || (s === 'on') || (s === 1);
-  },
-  // Have a feeling we'll use this soon
-  keyValue: function(s) {
-    s = parsers.string(s);
-    var o = {};
-    _.each(s, function(v) {
-      var matches = v.match(/^([^:]+):(.*)$/);
-      if (!matches) {
-        throw 'Key-value pairs expected, like this: key:value,key:value';
-      }
-      o[matches[1]] = matches[2];
-    });
-    return o;
-  }
-};
-
-var stringifiers = {
-  string: function(s) {
-    return s;
-  },
-  integer: function(s) {
-    return s;
-  },
-  strings: function(s) {
-    return s.join(',');
-  },
-  boolean: function(s) {
-    return s ? 'true' : 'false'
-  },
-  keyValue: function(o) {
-    return _.map(o, function(v, k) {
-      return k + ':' + v;
-    }).join(',');
-  },
-  addresses: function(s) {
-    return s.join(',');
-  }
-};
+const stringifiers = require('./utils').stringifiers;
 
 data.sites = data.sites || [];
 
-////////// run //////////
-
-function _usage(m) {
-  if (m) {
-    console.error(m);
-  }
-  console.error('See https://github.com/punkave/mechanic for usage.');
-  process.exit(1);
-}
-
-function _runCMD(cmd) {
-  if (cmd === 'add') {
-    update(true);
-  } else if (cmd === 'update') {
-    update(false);
-  } else if (cmd === 'start') {
-    start();
-  } else if (cmd === 'remove') {
-    remove();
-  } else if (cmd === 'refresh') {
-    refresh();
-  } else if (cmd === 'list') {
-    list();
-  }
-  // else if (cmd === 'set') {
-  // set();
-  // }
-  else if (cmd === 'reset') {
-    reset();
-  } else {
-    usage();
-  }
-}
-
-var command = argv._[0];
-if (!command) {
-  _usage();
-}
-_runCMD(command);
-
 ///////// command ////////
 
-function _generateNginxConfigFile() {
-  var sites = _.filter(data.sites, validSiteFilter);
+const cmds = {};
 
-  sites.forEach((siteConf) => {
-    _replaceRootDirToRootPath(siteConf);
-  })
+cmds.usage = function(m) {
+  if (m) {
+    log(m);
+  }
+  log('See https://github.com/punkave/mechanic for usage.');
+  process.exit(0);
+};
 
-  var template = fs.readFileSync(settings.template || (__dirname + '/template.conf'), 'utf8');
-
-  var output = nunjucks.renderString(template, {
-    sites: sites,
-    settings: settings,
-    ROOT_DIR,
+cmds.setup = function() {
+  const sites = _.filter(data.sites, site => {
+    if (!(site.backends && site.backends.length) && !site.static) {
+      log(
+        'WARNING: skipping ' + site.shortname + ' because no backends have been specified (hint: --backends=portnumber)'
+      );
+      return false;
+    }
+    return true;
   });
+
+  sites.forEach(siteConf => {
+    _replaceRootDirToRootPath(siteConf);
+  });
+
+  const template = fs.readFileSync(settings.template, 'utf8');
 
   // Set up include-able files to allow
   // easy customizations
   _.each(sites, function(site) {
-    var folder = settings.overrides;
+    let folder = settings.overrides;
     if (!fs.existsSync(folder)) {
       fs.mkdirSync(folder);
     }
@@ -216,17 +82,25 @@ function _generateNginxConfigFile() {
     if (!fs.existsSync(folder)) {
       fs.mkdirSync(folder);
     }
-    var files = ['location', 'proxy', 'server', 'top'];
+    const files = ['location', 'proxy', 'server', 'top'];
     _.each(files, function(file) {
-      var filename = folder + '/' + file;
+      const filename = folder + '/' + file;
       if (!fs.existsSync(filename)) {
         fs.writeFileSync(filename, '# Your custom nginx directives go here\n');
       }
     });
   });
 
-  fs.writeFileSync(settings.conf + '/mechanic.conf', output);
-}
+  const nginxConfContent = nunjucks.renderString(template, {
+    sites: sites,
+    settings: settings,
+    ROOT_DIR
+  });
+
+  fs.writeFileSync(settings.conf, nginxConfContent);
+
+  log(`Successfully generat nginx config files in ${settings.conf}`);
+};
 
 // function set() {
 //   // Top-level settings: nginx conf folder, logs folder,
@@ -237,148 +111,84 @@ function _generateNginxConfigFile() {
 //   var key = argv._[1];
 //   var value = argv._[2];
 //   data.settings[key] = value;
-//   go();
+//   cmds.reload();
 // }
 
-function start() {
+cmds.start = function() {
   if (!settings.start) {
     return;
   }
 
-  _generateNginxConfigFile();
+  this.setup();
 
   const start = settings.start;
   if (shelljs.exec(start).code !== 0) {
-    console.error('ERROR: unable to reload nginx configuration, make sure the nginx is started!');
-    process.exit(3);
-  }
-}
-
-function update(add) {
-  if (argv._.length !== 2) {
-    usage('shortname argument is required; also --host');
+    throw new Error(`ERROR: unable to start nginx using '${start}' !`);
   }
 
-  var shortname = argv._[1];
-  var site;
+  log(`Successfully reload nginx using ${start}`);
 
-  if (add) {
-    if (findSite(shortname)) {
-      usage('Site already exists, use update');
-    } else {
-      site = {
-        shortname: shortname
-      };
-      data.sites.push(site);
-    }
-  } else {
-    site = findSite(shortname);
-    if (!site) {
-      usage('Unknown site: ' + shortname);
-    }
+  process.exit(0);
+};
+
+cmds.reload = function() {
+  cmds.setup();
+
+  const reload = settings.restart;
+  if (shelljs.exec(reload).code !== 0) {
+    throw new Error(`ERROR: unable to reload nginx using '${reload}' !`);
   }
 
-  _.each(argv, function(val, key) {
-    if (key === '_') {
-      return;
-    }
-
-    if (_.has(aliases, key)) {
-      key = aliases[key];
-    }
-
-    if (!_.has(options, key)) {
-      usage('Unrecognized option: ' + key);
-    }
-    try {
-      site[key] = parsers[options[key]](val);
-    } catch (e) {
-      console.error(e);
-      usage('Value for ' + key + ' must be of type: ' + options[key]);
-    }
-  });
-
-  go();
-}
-
-function remove() {
-  if (argv._.length !== 2) {
-    usage();
-  }
-
-  var shortname = argv._[1];
-
-  var found = false;
-  data.sites = _.filter(data.sites || [], function(site) {
-    if (site.shortname === shortname) {
-      found = true;
-      return false;
-    }
-    return true;
-  });
-
-  if (!found) {
-    // It's not fatal but it's warning-worthy
-    console.error('Not found: ' + shortname);
-    return;
-  }
-
-  go();
-}
-
-function refresh() {
-  go();
-}
-
-function validSiteFilter(site) {
-  if ((!(site.backends && site.backends.length)) && (!site.static)) {
-    console.log('WARNING: skipping ' + site.shortname + ' because no backends have been specified (hint: --backends=portnumber)');
-    return false;
-  }
-  return true;
-}
-
-function go() {
-  _generateNginxConfigFile();
-
-  if (settings.restart !== false) {
-    var restart = settings.restart || 'service nginx reload';
-    if (shelljs.exec(restart).code !== 0) {
-      console.error('ERROR: unable to reload nginx configuration, make sure the nginx is started!');
-      process.exit(0);
-    }
-  }
+  log(`Successfully reload nginx using ${reload}`);
 
   // Under 0.12 (?) this doesn't want to terminate on its own,
   // not sure who the culprit is
   process.exit(0);
-}
+};
 
-function findSite(shortname) {
-  return _.find(data.sites, function(site) {
-    return site.shortname === shortname;
-  });
-}
-
-function list() {
-  _.each(data.settings, function(val, key) {
-    if (val !== defaultSettings[key]) {
-      console.log(shellEscape(['mechanic', 'set', key, val]));
+cmds.upstreamTo = function() {
+  data.sites.forEach(site => {
+    if (site.shortname === argv.site) {
+      site.backends = argv.backends.split(',');
     }
   });
+
+  cmds.reload();
+};
+
+const options = {
+  host: 'string',
+  backends: 'addresses',
+  aliases: 'strings',
+  canonical: 'boolean',
+  default: 'boolean',
+  static: 'string',
+  autoindex: 'boolean',
+  https: 'boolean',
+  'redirect-to-https': 'boolean'
+};
+
+cmds.listConfigs = function() {
+  _.each(data.settings, function(val, key) {
+    log(shellEscape(['mechanic', 'set', key, val]));
+  });
   _.each(data.sites, function(site) {
-    var words = ['mechanic', 'add', site.shortname];
+    const words = ['mechanic', 'add', site.shortname];
     _.each(site, function(val, key) {
       if (_.has(stringifiers, options[key])) {
         words.push('--' + key + '=' + stringifiers[options[key]](val));
       }
     });
-    console.log(shellEscape(words));
+    log(shellEscape(words));
   });
+};
+
+////////// run //////////
+
+const command = argv._[0] || 'usage';
+
+if (!cmds[command]) {
+  throw new Error(`No such command: ${command} `);
 }
 
-function reset() {
-  data.settings = defaultSettings;
-  data.sites = [];
-  go();
-}
+cmds[command]();
