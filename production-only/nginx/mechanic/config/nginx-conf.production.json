@@ -1,0 +1,47 @@
+{
+  "settings": {
+    "conf": "/var/www/yqj-wit-work/nginx",
+    "overrides": "/var/www/yqj-wit-work/nginx",
+    "logs": "/var/www/yqj-wit-work/current/logs/nginx",
+    "pid": "/var/www/yqj-wit-work/current/logs/pids/nginx.pid",
+    "start": "sudo nginx -c /var/www/yqj-wit-work/nginx/mechanic.conf",
+    "restart": "sudo nginx -s reload -c /var/www/yqj-wit-work/nginx/mechanic.conf",
+    "bind": "*",
+    "template": "production-only/nginx/mechanic/config/template.conf"
+  },
+  "sites": [{
+    "shortname": "yqj-wit-work",
+    "host": "localhost",
+    "port": 3000,
+    "backends": ["localhost:5001", "localhost:5002", "localhost:5000"],
+    "static": "/var/www/yqj-wit-work/nginx/static",
+    "autoindex": false,
+    "access_control_allow_origin": "$http_origin",
+    "https": false
+  }, {
+    "shortname": "mongo-ui",
+    "host": "localhost",
+    "port": 3100,
+    "backends": ["localhost:5100"],
+    "https": false
+  }, {
+    "shortname": "redis-ui",
+    "host": "localhost",
+    "port": 3200,
+    "backends": ["localhost:5200"],
+    "https": false
+  }, {
+    "shortname": "bull-ui",
+    "host": "localhost",
+    "port": 3300,
+    "backends": ["localhost:5300"],
+    "https": false
+  }, {
+    "shortname": "swagger-ui",
+    "host": "localhost",
+    "port": 3400,
+    "backends": ["localhost:5400"],
+    "https": false
+  }]
+}
+
